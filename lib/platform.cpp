@@ -21,7 +21,8 @@ Abstract:
 #include <mutex>
 
 #if defined(__QNX__) && defined(MLAS_TARGET_ARM64)
-#define AA64ISAR0_REG_INDEX  24
+#define AA64ISAR0_REG_INDEX  40
+#define AA64PFR0_REG_INDEX   24
 #include <sys/syspage.h>
 #endif
 
@@ -64,6 +65,20 @@ MLASCPUIDInfo::MLASCPUIDInfo()
 
     // raw hack! Need CPUIDInfo implementation for more precise detection
     has_fp16_ = has_arm_neon_dot_;
+}
+#endif
+
+#elif defined(__QNX__)
+
+#if defined(BUILD_MLAS_NO_ONNXRUNTIME)
+MLASCPUIDInfo::MLASCPUIDInfo()
+{
+    struct aarch64_syspage_entry* aarch64_syspage = &_syspage_ptr->un.aarch64;
+    uint64_t* hardware_registers = (uint64_t*)((char*)sp + aarch64_syspage->idreg_dump.entry_off);
+    uint32_t dp_field = (hardware_registers[AA64ISAR0_REG_INDEX] >> 44) & 0xF;
+    uint32_t fp16_field = (hardware_registers[AA64PFR0_REG_INDEX] >> 16) & 0xF;
+    has_arm_neon_dot_ = (dp_field >= 1) ? true : false;
+    has_fp16_ = (fp16_field >= 1) ? true : false;
 }
 #endif
 
@@ -456,11 +471,9 @@ Return Value:
 #if defined(_WIN32)
     HasDotProductInstructions = (IsProcessorFeaturePresent(PF_ARM_V82_DP_INSTRUCTIONS_AVAILABLE) != 0);
 #elif defined(__QNX__)
-    struct syspage_entry* sp = _syspage_ptr;
-    struct aarch64_syspage_entry* aarch64_sys = &sp->un.aarch64;
-    uint64_t* hardware_registers = (uint64_t*)((char*)sp + aarch64_sys->idreg_dump.entry_off);
-    uint64_t isar0_el1 = hardware_registers[AA64ISAR0_REG_INDEX];
-    uint32_t dp_field = (isar0_el1 >> 44) & 0xF;
+    struct aarch64_syspage_entry* aarch64_syspage = &_syspage_ptr->un.aarch64;
+    uint64_t* hardware_registers = (uint64_t*)((char*)sp + aarch64_syspage->idreg_dump.entry_off);
+    uint32_t dp_field = (hardware_registers[AA64ISAR0_REG_INDEX] >> 44) & 0xF;
     HasDotProductInstructions = (dp_field >= 1) ? true : false;
 #elif !defined(__APPLE__)  // The next few lines result in an EXC_BAD_INSTRUCTION runtime error on a M1 Mac so we
                            // disable it there.
